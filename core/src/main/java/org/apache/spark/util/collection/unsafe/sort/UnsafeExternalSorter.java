@@ -86,6 +86,7 @@ public final class UnsafeExternalSorter extends MemoryConsumer {
   private long totalSpillBytes = 0L;
   private long totalSortTimeNanos = 0L;
   private volatile SpillableIterator readingIterator = null;
+  private long shuffleSpillThreshold = 0L;
 
   public static UnsafeExternalSorter createWithExistingInMemorySorter(
       TaskMemoryManager taskMemoryManager,
@@ -150,6 +151,9 @@ public final class UnsafeExternalSorter extends MemoryConsumer {
     // TODO: Instead, separate spill metrics should be stored and reported (tracked in SPARK-3577).
     this.writeMetrics = new ShuffleWriteMetrics();
 
+    this.shuffleSpillThreshold = blockManager.conf()
+      .getSizeAsBytes("spark.shuffle.spill.limit", "10g");
+
     if (existingInMemorySorter == null) {
       this.inMemSorter = new UnsafeInMemorySorter(
         this, taskMemoryManager, recordComparator, prefixComparator, initialSize, canUseRadixSort);
@@ -188,6 +192,9 @@ public final class UnsafeExternalSorter extends MemoryConsumer {
    */
   @Override
   public long spill(long size, MemoryConsumer trigger) throws IOException {
+    if (totalSpillBytes > shuffleSpillThreshold) {
+      throw new IOException("Shuffle spill exceed " + shuffleSpillThreshold);
+    }
     if (trigger != this) {
       if (readingIterator != null) {
         return readingIterator.spill();
