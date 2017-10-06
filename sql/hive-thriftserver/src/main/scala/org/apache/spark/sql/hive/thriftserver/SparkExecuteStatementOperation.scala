@@ -19,13 +19,14 @@ package org.apache.spark.sql.hive.thriftserver
 
 import java.security.PrivilegedExceptionAction
 import java.sql.{Date, Timestamp}
-import java.util.{Arrays, Map => JMap, UUID}
+import java.util.{Arrays, UUID, Map => JMap}
 import java.util.concurrent.RejectedExecutionException
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
 
+import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.hive.metastore.api.FieldSchema
 import org.apache.hadoop.hive.shims.Utils
 import org.apache.hadoop.security.UserGroupInformation
@@ -36,7 +37,7 @@ import org.apache.hive.service.cli.session.HiveSession
 import org.apache.spark.SparkContext
 import org.apache.spark.deploy.SparkHadoopUtil
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.{DataFrame, Row => SparkRow, SQLContext}
+import org.apache.spark.sql.{DataFrame, SQLContext, Row => SparkRow}
 import org.apache.spark.sql.execution.command.SetCommand
 import org.apache.spark.sql.hive.HiveUtils
 import org.apache.spark.sql.internal.SQLConf
@@ -193,6 +194,12 @@ private[hive] class SparkExecuteStatementOperation(
 
           try {
             sparkServiceUGI.doAs(doAsAction)
+            try {
+              FileSystem.closeAllForUGI(sparkServiceUGI)
+            } catch {
+              case e: Exception =>
+                logWarning(e.getMessage)
+            }
           } catch {
             case e: Exception =>
               setOperationException(new HiveSQLException(e))

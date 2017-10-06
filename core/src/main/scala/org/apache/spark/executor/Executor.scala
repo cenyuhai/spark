@@ -32,6 +32,7 @@ import scala.util.control.NonFatal
 
 import com.codahale
 import com.codahale.metrics.MetricFilter
+import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.security.UserGroupInformation
 
 import org.apache.spark._
@@ -347,6 +348,12 @@ private[spark] class Executor(
                   metricsSystem = env.metricsSystem)
               }
             })
+            try {
+              FileSystem.closeAllForUGI(proxyUser)
+            } catch {
+              case e: Exception =>
+                logWarning(e.getMessage)
+            }
           } else {
             task.run(
               taskAttemptId = taskId,
