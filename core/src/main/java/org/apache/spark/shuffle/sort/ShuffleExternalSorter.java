@@ -72,6 +72,8 @@ final class ShuffleExternalSorter extends MemoryConsumer {
   private final BlockManager blockManager;
   private final TaskContext taskContext;
   private final ShuffleWriteMetrics writeMetrics;
+  private long totalSpillBytes = 0L;
+  private long shuffleSpillThreshold = 0L;
 
   /**
    * Force this sorter to spill when there are this many elements in memory. The default value is
@@ -117,6 +119,7 @@ final class ShuffleExternalSorter extends MemoryConsumer {
     this.numPartitions = numPartitions;
     // Use getSizeAsKb (not bytes) to maintain backwards compatibility if no units are provided
     this.fileBufferSizeBytes = (int) conf.getSizeAsKb("spark.shuffle.file.buffer", "32k") * 1024;
+    this.shuffleSpillThreshold = conf.getSizeAsBytes("spark.shuffle.spill.limit", "10g");
     this.numElementsForSpillThreshold =
       conf.getLong("spark.shuffle.spill.numElementsForceSpillThreshold", 1024 * 1024 * 1024);
     this.writeMetrics = writeMetrics;
@@ -245,6 +248,10 @@ final class ShuffleExternalSorter extends MemoryConsumer {
       return 0L;
     }
 
+    if (totalSpillBytes > shuffleSpillThreshold) {
+      throw new IOException("Shuffle spill exceed " + shuffleSpillThreshold);
+    }
+
     logger.info("Thread {} spilling sort data of {} to disk ({} {} so far)",
       Thread.currentThread().getId(),
       Utils.bytesToString(getMemoryUsage()),
@@ -258,6 +265,7 @@ final class ShuffleExternalSorter extends MemoryConsumer {
     // records. Otherwise, if the task is over allocated memory, then without freeing the memory
     // pages, we might not be able to get memory for the pointer array.
     taskContext.taskMetrics().incMemoryBytesSpilled(spillSize);
+    totalSpillBytes += spillSize;
     return spillSize;
   }
 
