@@ -19,16 +19,20 @@ package org.apache.spark.sql.hive.execution
 
 import java.io.IOException
 import java.net.URI
+import java.security.PrivilegedExceptionAction
 import java.text.SimpleDateFormat
 import java.util.{Date, Locale, Random}
 
 import scala.util.control.NonFatal
 
+import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.hdfs.DistributedFileSystem
 import org.apache.hadoop.hive.common.FileUtils
 import org.apache.hadoop.hive.ql.exec.TaskRunner
 import org.apache.hadoop.hive.ql.ErrorMsg
 import org.apache.hadoop.mapred.{FileOutputFormat, JobConf}
+import org.apache.hadoop.security.UserGroupInformation
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.AnalysisException
@@ -114,14 +118,43 @@ case class InsertIntoHiveTable(
       if (!FileUtils.mkdir(fs, dir, true, hadoopConf)) {
         throw new IllegalStateException("Cannot create staging directory  '" + dir.toString + "'")
       }
+      setQuota(fs, dir, hadoopConf)
       createdTempDir = Some(dir)
       fs.deleteOnExit(dir)
     } catch {
       case e: IOException =>
         throw new RuntimeException(
           "Cannot create staging directory '" + dir.toString + "': " + e.getMessage, e)
+      case ie: InterruptedException =>
+        throw new RuntimeException(
+          "Error when set quota for staging directory '" + dir.toString() + "': "
+          + ie.getMessage(), ie);
     }
     return dir
+  }
+
+  private def setQuota(fileSystem: FileSystem, dir: Path, conf: Configuration): Unit = {
+    val quota = hadoopConf.getLong("hive.tmp.dir.quota", 300L * 1024 * 1024 * 1024 * 1024)
+    if (quota != -1L && fileSystem.isInstanceOf[DistributedFileSystem]) {
+      val hdfsSuperUser = hadoopConf.get("hive.hdfs.operation.supersuer", "master")
+      val superUserUgi = UserGroupInformation.createRemoteUser(hdfsSuperUser)
+      val localConf = sessionState.newHadoopConf()
+      try {
+        superUserUgi.doAs(new PrivilegedExceptionAction[Unit] {
+          def run: Unit = {
+            val dfs = dir.getFileSystem(localConf).asInstanceOf[DistributedFileSystem]
+            dfs.setQuota(dir, Long.MaxValue, quota)
+          }
+        })
+      } finally {
+        try {
+          FileSystem.closeAllForUGI(superUserUgi)
+        } catch {
+          case e: Exception =>
+            logWarning(e.getMessage)
+        }
+      }
+    }
   }
 
   private def getExternalScratchDir(extURI: URI): Path = {
