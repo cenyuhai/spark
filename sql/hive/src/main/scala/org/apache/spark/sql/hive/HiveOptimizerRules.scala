@@ -30,6 +30,7 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.command.DDLUtils
 import org.apache.spark.sql.execution.datasources.CreateTable
+import org.apache.spark.sql.hive.merge.MergeUtils
 
 case class DeterminePartitionedTableStats(sparkSession: SparkSession)
   extends Rule[LogicalPlan] with PredicateHelper {
@@ -107,9 +108,11 @@ case class MergeSmallFiles(sparkSession: SparkSession) extends Rule[LogicalPlan]
     plan transformDown {
       case InsertIntoTable(table: MetastoreRelation, partition,
           child, overwrite, ifNotExists) if !child.isInstanceOf[Sort] &&
-          !child.children.exists(a => a.isInstanceOf[RepartitionByExpression] &&
-            !a.isInstanceOf[Repartition]) && !table.databaseName.contains("temp") =>
-        val rand = Alias(new Rand(), "_nondeterministic")()
+          !child.children.exists(a => a.isInstanceOf[RepartitionByExpression] ||
+            a.isInstanceOf[Repartition] ||
+            a.isInstanceOf[Sort]) && !table.databaseName.contains("temp") &&
+            !MergeUtils.SUPPORTED_FORMAT.contains(table.tableDesc.getOutputFileFormatClassName) =>
+        val rand = Alias(new Rand(), "SparkMergeTask")()
         val newProjected = Project(child.output :+ rand, child)
         val mergeFileStage = RepartitionByExpression(Seq(rand.toAttribute), newProjected, None)
         val finalOutput = Project(child.output, mergeFileStage)
@@ -117,8 +120,11 @@ case class MergeSmallFiles(sparkSession: SparkSession) extends Rule[LogicalPlan]
       case CreateTable(tableDesc, mode, Some(query)) if tableDesc.provider.get == "hive" &&
           !query.isInstanceOf[Sort] &&
           !query.children.exists(a => a.isInstanceOf[RepartitionByExpression]
-            && !a.isInstanceOf[Repartition]) && !tableDesc.database.contains("temp") =>
-        CreateTable(tableDesc, mode, Some(RepartitionByExpression(Seq(new Rand()), query, None)))
+            || a.isInstanceOf[Repartition] ||
+            a.isInstanceOf[Sort]) && !tableDesc.database.contains("temp") &&
+          !MergeUtils.SUPPORTED_FORMAT.contains(tableDesc.storage.outputFormat.get) =>
+        CreateTable(tableDesc, mode, Some(RepartitionByExpression(
+          Seq(Alias(new Rand(), "SparkMergeTask")()), query, None)))
     }
   }
 }

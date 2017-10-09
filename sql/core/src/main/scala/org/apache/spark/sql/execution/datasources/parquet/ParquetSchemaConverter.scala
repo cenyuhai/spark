@@ -52,7 +52,7 @@ import org.apache.spark.sql.types._
  *        When set to false, use standard format defined in parquet-format spec.  This argument only
  *        affects Parquet write path.
  */
-private[parquet] class ParquetSchemaConverter(
+private[spark] class ParquetSchemaConverter(
     assumeBinaryIsString: Boolean = SQLConf.PARQUET_BINARY_AS_STRING.defaultValue.get,
     assumeInt96IsTimestamp: Boolean = SQLConf.PARQUET_INT96_AS_TIMESTAMP.defaultValue.get,
     writeLegacyParquetFormat: Boolean = SQLConf.PARQUET_WRITE_LEGACY_FORMAT.defaultValue.get) {
@@ -63,10 +63,12 @@ private[parquet] class ParquetSchemaConverter(
     writeLegacyParquetFormat = conf.writeLegacyParquetFormat)
 
   def this(conf: Configuration) = this(
-    assumeBinaryIsString = conf.get(SQLConf.PARQUET_BINARY_AS_STRING.key).toBoolean,
-    assumeInt96IsTimestamp = conf.get(SQLConf.PARQUET_INT96_AS_TIMESTAMP.key).toBoolean,
-    writeLegacyParquetFormat = conf.get(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
-      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.defaultValue.get.toString).toBoolean)
+    assumeBinaryIsString = conf.getBoolean(SQLConf.PARQUET_BINARY_AS_STRING.key,
+      SQLConf.PARQUET_BINARY_AS_STRING.defaultValue.get),
+    assumeInt96IsTimestamp = conf.getBoolean(SQLConf.PARQUET_INT96_AS_TIMESTAMP.key,
+      SQLConf.PARQUET_INT96_AS_TIMESTAMP.defaultValue.get),
+    writeLegacyParquetFormat = conf.getBoolean(SQLConf.PARQUET_WRITE_LEGACY_FORMAT.key,
+      SQLConf.PARQUET_WRITE_LEGACY_FORMAT.defaultValue.get))
 
   /**
    * Converts Parquet [[MessageType]] `parquetSchema` to a Spark SQL [[StructType]].

@@ -22,14 +22,18 @@ import java.net.URI
 import java.text.SimpleDateFormat
 import java.util.{Date, Locale, Random}
 
+import scala.collection.JavaConverters._
 import scala.util.control.NonFatal
 
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.hadoop.hive.common.FileUtils
-import org.apache.hadoop.hive.ql.exec.TaskRunner
 import org.apache.hadoop.hive.ql.ErrorMsg
+import org.apache.hadoop.hive.ql.exec.{TaskRunner, Utilities}
+import org.apache.hadoop.hive.ql.io.HiveOutputFormat
+import org.apache.hadoop.io.Writable
 import org.apache.hadoop.mapred.{FileOutputFormat, JobConf}
 
+import org.apache.spark.SparkException
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.AnalysisException
 import org.apache.spark.sql.catalyst.InternalRow
@@ -38,8 +42,9 @@ import org.apache.spark.sql.catalyst.plans.physical.Partitioning
 import org.apache.spark.sql.execution.{SparkPlan, UnaryExecNode}
 import org.apache.spark.sql.hive._
 import org.apache.spark.sql.hive.HiveShim.{ShimFileSinkDesc => FileSinkDesc}
-import org.apache.spark.SparkException
-import org.apache.spark.util.SerializableJobConf
+import org.apache.spark.sql.hive.merge.MergeUtils
+import org.apache.spark.sql.internal.SQLConf
+import org.apache.spark.util.{RpcUtils, SerializableJobConf}
 
 
 /**
@@ -89,6 +94,14 @@ case class InsertIntoHiveTable(
   var createdTempDir: Option[Path] = None
   val stagingDir = hadoopConf.get("hive.exec.stagingdir", ".hive-staging")
   val scratchDir = hadoopConf.get("hive.exec.scratchdir", "/tmp/hive")
+
+  private val avgConditionSize = sqlContext.sparkSession.conf
+    .get(SQLConf.MERGE_SMALLFILE_SIZE)
+  private val outputAverageSize = sqlContext.sparkSession
+    .conf.get(SQLConf.MERGE_FILE_PER_TASK)
+  private val mergeHiveFiles = sqlContext.sparkSession.sessionState.conf.mergeHiveFiles
+  private val targetFileSize = Math.max(avgConditionSize, outputAverageSize)
+  private val retryWaitMs = RpcUtils.retryWaitMs(sqlContext.sparkContext.conf)
 
   private def executionId: String = {
     val rand: Random = new Random
@@ -189,6 +202,69 @@ case class InsertIntoHiveTable(
     new Path(getStagingDir(path), "-ext-10000") // Hive uses 10000
   }
 
+  private def mergeFile(
+      path: Path,
+      fs: FileSystem,
+      fileSinkConf: FileSinkDesc,
+      conf: SerializableJobConf,
+      directRenamePathList: java.util.List[String],
+      speculationEnabled: Boolean): Unit = {
+    val hiveOutputFormat = conf.value.getOutputFormat
+      .asInstanceOf[HiveOutputFormat[AnyRef, Writable]]
+    val extension = Utilities.getFileExtension(conf.value,
+      fileSinkConf.getCompressed, hiveOutputFormat)
+    val outputClassName = fileSinkConf.getTableInfo.getOutputFileFormatClassName
+    val outputDir = path.toString
+    val tmpMergeLocation = MergeUtils.getExternalMergeTmpPath(path, conf.value)
+    val tmpMergeLocationDir = tmpMergeLocation.toString
+    fileSinkConf.dir = tmpMergeLocation.toString
+    val waitTime = retryWaitMs
+    val numDynamicPartitions = partition.values.count(_.isEmpty)
+    if (numDynamicPartitions > 0) {
+      val mergeRules = MergeUtils.generateDynamicMergeRule(fs, path,
+        conf.value, avgConditionSize, targetFileSize, directRenamePathList)
+      sparkContext.union(mergeRules.map { r =>
+        val groupSize = Math.ceil(r.files.size * 1d / r.numFiles).toInt
+        val groupedFiles = r.files.toArray.grouped(groupSize).map(x => (r.path, x)).toArray
+        MergeUtils.mergePathRDD(sparkContext, groupedFiles, groupedFiles.size)
+      }).foreach { case (partOutputDir, files) =>
+        val tmpPartMergeLocationDir = partOutputDir.replace("-ext-10000", MergeUtils.TEMP_DIR)
+        MergeUtils.mergeAction(conf, outputClassName, files, partOutputDir, tmpPartMergeLocationDir,
+          extension, waitTime)
+      }
+      if (speculationEnabled) {
+        mergeRules.foreach { r =>
+          val specFiles = fs.listStatus(
+            new Path(r.path.toString.replace("-ext-10000", MergeUtils.TEMP_DIR)))
+            .filter(!_.getPath.getName.startsWith("part"))
+          specFiles.foreach(f => fs.delete(f.getPath))
+        }
+      }
+    } else {
+      val numFiles = MergeUtils.getTargetFileNum(path, conf.value,
+        avgConditionSize, targetFileSize)
+      if (numFiles > 0) {
+        val files = fs.listStatus(path).filter(_.getLen > 0).map(_.getPath.toString)
+        val groupSize = Math.ceil(files.size * 1d / numFiles).toInt
+        val groupedFiles = files.grouped(groupSize).toArray
+        fileSinkConf.dir = tmpMergeLocation.toString
+        sparkContext.parallelize(groupedFiles, groupedFiles.size).foreach { files =>
+          MergeUtils.mergeAction(conf, outputClassName, files, outputDir, tmpMergeLocationDir,
+            extension, waitTime)
+        }
+        if (speculationEnabled) {
+          val specFiles = fs.listStatus(tmpMergeLocation)
+            .filter(!_.getPath.getName.startsWith("part"))
+          specFiles.foreach(f => fs.delete(f.getPath))
+        }
+        if (conf.value.getBoolean("mapreduce.fileoutputcommitter.marksuccessfuljobs", true)) {
+          fs.createNewFile(new Path(tmpMergeLocationDir + "/_SUCCESS"))
+        }
+      }
+    }
+    FileOutputFormat.setOutputPath(conf.value, tmpMergeLocation)
+  }
+
   private def saveAsHiveFile(
       rdd: RDD[InternalRow],
       valueClass: Class[_],
@@ -277,6 +353,7 @@ case class InsertIntoHiveTable(
     }
 
     val jobConf = new JobConf(hadoopConf)
+    jobConf.set(MergeUtils.SCHEMA, table.attributes.toStructType.json)
     val jobConfSer = new SerializableJobConf(jobConf)
 
     // When speculation is on and output committer class name contains "Direct", we should warn
@@ -308,6 +385,38 @@ case class InsertIntoHiveTable(
 
     @transient val outputClass = writerContainer.newSerializer(table.tableDesc).getSerializedClass
     saveAsHiveFile(child.execute(), outputClass, fileSinkConf, jobConfSer, writerContainer)
+
+    val outputFormatClass = fileSinkConf.getTableInfo.getOutputFileFormatClassName
+    if (mergeHiveFiles && targetFileSize > 0 && !table.databaseName.contains("temp") &&
+        MergeUtils.SUPPORTED_FORMAT.contains(outputFormatClass)) {
+      val directRenamePathList = new java.util.ArrayList[String]()
+      val rollbackPathList = new java.util.ArrayList[String]()
+      val fs = tmpLocation.getFileSystem(jobConf)
+      try {
+        mergeFile(tmpLocation, fs, fileSinkConf, jobConfSer,
+          directRenamePathList, speculationEnabled)
+        if (!directRenamePathList.isEmpty) {
+          directRenamePathList.asScala.foreach { path =>
+            val destPath = path.replace("-ext-10000", MergeUtils.TEMP_DIR)
+            rollbackPathList.add(path)
+            logInfo("rename [" + path + " to " + destPath + "]")
+            fs.rename(new Path(path), new Path(destPath))
+          }
+        }
+      } catch {
+        case ex: Exception =>
+          logInfo("Merge file of " + tmpLocation + " failed!", ex)
+          fileSinkConf.dir = tmpLocation.toString
+          if (!rollbackPathList.isEmpty) {
+            rollbackPathList.asScala.foreach { path =>
+              val srcPath = path.replace("-ext-10000", MergeUtils.TEMP_DIR)
+              logInfo("rename [" + srcPath + " to "
+                + path + "]")
+              fs.rename(new Path(srcPath), new Path(path))
+            }
+          }
+      }
+    }
 
     val outputPath = FileOutputFormat.getOutputPath(jobConf)
     // TODO: Correctly set holdDDLTime.

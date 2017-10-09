@@ -35,6 +35,8 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
 
   private def targetPostShuffleInputSize: Long = conf.targetPostShuffleInputSize
 
+  private def mergeFileSize: Long = conf.mergeFileSize * 4
+
   private def adaptiveExecutionEnabled: Boolean = conf.adaptiveExecutionEnabled
 
   private def minNumPostShufflePartitions: Option[Int] = {
@@ -95,8 +97,18 @@ case class EnsureRequirements(conf: SQLConf) extends Rule[SparkPlan] {
             minNumPostShufflePartitions)
         children.zip(requiredChildDistributions).map {
           case (e: ShuffleExchange, _) =>
-            // This child is an Exchange, we need to add the coordinator.
-            e.copy(coordinator = Some(coordinator))
+            if (e.newPartitioning.asInstanceOf[HashPartitioning]
+                .toString.contains("SparkMergeTask")) {
+              val mergeCoordinator =
+                new ExchangeCoordinator(
+                  children.length,
+                  mergeFileSize,
+                  minNumPostShufflePartitions)
+              e.copy(coordinator = Some(mergeCoordinator))
+            } else {
+              // This child is an Exchange, we need to add the coordinator.
+              e.copy(coordinator = Some(coordinator))
+            }
           case (child, distribution) =>
             // If this child is not an Exchange, we need to add an Exchange for now.
             // Ideally, we can try to avoid this Exchange. However, when we reach here,
