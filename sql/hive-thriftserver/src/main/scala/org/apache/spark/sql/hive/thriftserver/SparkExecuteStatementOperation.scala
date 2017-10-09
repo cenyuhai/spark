@@ -194,17 +194,18 @@ private[hive] class SparkExecuteStatementOperation(
 
           try {
             sparkServiceUGI.doAs(doAsAction)
+          } catch {
+            case e: Exception =>
+              setOperationException(new HiveSQLException(e))
+              logError("Error running hive query as user : " +
+                sparkServiceUGI.getShortUserName(), e)
+          } finally {
             try {
               FileSystem.closeAllForUGI(sparkServiceUGI)
             } catch {
               case e: Exception =>
                 logWarning(e.getMessage)
             }
-          } catch {
-            case e: Exception =>
-              setOperationException(new HiveSQLException(e))
-              logError("Error running hive query as user : " +
-                sparkServiceUGI.getShortUserName(), e)
           }
         }
       }

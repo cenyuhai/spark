@@ -340,19 +340,22 @@ private[spark] class Executor(
             val currentUser = UserGroupInformation.getCurrentUser()
             logDebug(s"Execute task $taskId as user ${proxyUser.getShortUserName}")
             SparkHadoopUtil.get.transferCredentials(currentUser, proxyUser)
-            proxyUser.doAs(new PrivilegedExceptionAction[Any] {
-              def run: Any = {
-                task.run(
-                  taskAttemptId = taskId,
-                  attemptNumber = attemptNumber,
-                  metricsSystem = env.metricsSystem)
-              }
-            })
             try {
-              FileSystem.closeAllForUGI(proxyUser)
-            } catch {
-              case e: Exception =>
-                logWarning(e.getMessage)
+              proxyUser.doAs(new PrivilegedExceptionAction[Any] {
+                def run: Any = {
+                  task.run(
+                    taskAttemptId = taskId,
+                    attemptNumber = attemptNumber,
+                    metricsSystem = env.metricsSystem)
+                }
+              })
+            } finally {
+              try {
+                FileSystem.closeAllForUGI(proxyUser)
+              } catch {
+                case e: Exception =>
+                  logWarning(e.getMessage)
+              }
             }
           } else {
             task.run(
