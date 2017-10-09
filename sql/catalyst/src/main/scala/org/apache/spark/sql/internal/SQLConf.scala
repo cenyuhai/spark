@@ -355,6 +355,12 @@ object SQLConf {
     .createWithDefault(200)
 
   // This is used to set the default data source
+  val DEFAULT_FILEFORMAT = SQLConfigBuilder("spark.sql.default.fileformat")
+    .doc("The default fileformat.")
+    .stringConf
+    .createWithDefault("textfile")
+
+  // This is used to set the default data source
   val DEFAULT_DATA_SOURCE_NAME = SQLConfigBuilder("spark.sql.sources.default")
     .doc("The default data source to use in input/output.")
     .stringConf
@@ -707,6 +713,7 @@ object SQLConf {
 
   object HiveVars {
     val REDUCE_BYTES = "hive.exec.reducers.bytes.per.reducer"
+    val HIVE_DEFAULT_FILEFORMAT = "hive.default.fileformat"
   }
 }
 
