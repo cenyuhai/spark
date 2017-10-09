@@ -84,6 +84,13 @@ case class SetCommand(kv: Option[(String, Option[String])]) extends RunnableComm
       }
       (keyValueOutput, runFunc)
 
+    case Some((SQLConf.HiveVars.HIVE_DEFAULT_FILEFORMAT, Some(value))) =>
+      val runFunc = (sparkSession: SparkSession) => {
+        sparkSession.conf.set(SQLConf.DEFAULT_FILEFORMAT.key, value)
+        Seq(Row(SQLConf.DEFAULT_FILEFORMAT.key, value))
+      }
+      (keyValueOutput, runFunc)
+
     case Some((key @ SetCommand.VariableName(name), Some(value))) =>
       val runFunc = (sparkSession: SparkSession) => {
         sparkSession.conf.set(name, value)
