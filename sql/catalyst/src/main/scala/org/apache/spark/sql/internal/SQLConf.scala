@@ -145,6 +145,16 @@ object SQLConf {
     .booleanConf
     .createWithDefault(false)
 
+  val MERGE_FILE_PER_TASK = SQLConfigBuilder("spark.sql.hive.merge.size.per.task")
+    .doc("The size of one file")
+    .bytesConf(ByteUnit.BYTE)
+    .createWithDefault(240 * 1024 * 1024)
+
+  val MERGE_SMALLFILE_SIZE = SQLConfigBuilder("spark.sql.hive.merge.smallfile.size")
+    .doc("The average size of smallfile")
+    .bytesConf(ByteUnit.BYTE)
+    .createWithDefault(80 * 1024 * 1024)
+
   val SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE =
     SQLConfigBuilder("spark.sql.adaptive.shuffle.targetPostShuffleInputSize")
       .doc("The target post-shuffle input size in bytes of a task.")
@@ -789,6 +799,8 @@ class SQLConf extends Serializable with Logging {
   def numShufflePartitions: Int = getConf(SHUFFLE_PARTITIONS)
 
   def mergeHiveFiles: Boolean = getConf(MERGE_HIVEFILES)
+
+  def mergeFileSize: Long = getConf(MERGE_FILE_PER_TASK)
 
   def targetPostShuffleInputSize: Long =
     getConf(SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE)
