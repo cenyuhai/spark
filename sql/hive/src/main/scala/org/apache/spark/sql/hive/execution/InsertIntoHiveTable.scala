@@ -273,6 +273,7 @@ case class InsertIntoHiveTable(
           specFiles.foreach(f => fs.delete(f.getPath))
         }
       }
+      FileOutputFormat.setOutputPath(conf.value, tmpMergeLocation)
     } else {
       val numFiles = MergeUtils.getTargetFileNum(path, conf.value,
         avgConditionSize, targetFileSize)
@@ -290,12 +291,9 @@ case class InsertIntoHiveTable(
             .filter(!_.getPath.getName.startsWith("part"))
           specFiles.foreach(f => fs.delete(f.getPath))
         }
-        if (conf.value.getBoolean("mapreduce.fileoutputcommitter.marksuccessfuljobs", true)) {
-          fs.createNewFile(new Path(tmpMergeLocationDir + "/_SUCCESS"))
-        }
+        FileOutputFormat.setOutputPath(conf.value, tmpMergeLocation)
       }
     }
-    FileOutputFormat.setOutputPath(conf.value, tmpMergeLocation)
   }
 
   private def saveAsHiveFile(
@@ -440,11 +438,11 @@ case class InsertIntoHiveTable(
         case ex: Exception =>
           logInfo("Merge file of " + tmpLocation + " failed!", ex)
           fileSinkConf.dir = tmpLocation.toString
+          FileOutputFormat.setOutputPath(jobConf, tmpLocation)
           if (!rollbackPathList.isEmpty) {
             rollbackPathList.asScala.foreach { path =>
               val srcPath = path.replace("-ext-10000", MergeUtils.TEMP_DIR)
-              logInfo("rename [" + srcPath + " to "
-                + path + "]")
+              logInfo("rename [" + srcPath + " to " + path + "]")
               fs.rename(new Path(srcPath), new Path(path))
             }
           }
