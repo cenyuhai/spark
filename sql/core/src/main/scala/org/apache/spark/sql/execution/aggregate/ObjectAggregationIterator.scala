@@ -75,8 +75,8 @@ class ObjectAggregationIterator(
     FromUnsafeProjection(outputAttributes.map(_.dataType))
 
   /**
-    * Start processing input rows.
-    */
+   * Start processing input rows.
+   */
   processInputs()
 
   override final def hasNext: Boolean = {
@@ -89,8 +89,8 @@ class ObjectAggregationIterator(
   }
 
   /**
-    * Generate an output row when there is no input and there is no grouping expression.
-    */
+   * Generate an output row when there is no input and there is no grouping expression.
+   */
   def outputForEmptyGroupingKeyWithoutInput(): UnsafeRow = {
     if (groupingExpressions.isEmpty) {
       val defaultAggregationBuffer = createNewAggregationBuffer()
@@ -233,9 +233,9 @@ class SortBasedAggregator(
   }
 
   /**
-    * Returns a destructive iterator of AggregationBufferEntry.
-    * Notice: it is illegal to call any method after `destructiveIterator()` has been called.
-    */
+   * Returns a destructive iterator of AggregationBufferEntry.
+   * Notice: it is illegal to call any method after `destructiveIterator()` has been called.
+   */
   def destructiveIterator(): Iterator[AggregationBufferEntry] = {
     new Iterator[AggregationBufferEntry] {
       val inputIterator = inputSorter.sortedIterator()

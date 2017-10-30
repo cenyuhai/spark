@@ -60,9 +60,9 @@ class ObjectAggregationMap() {
   }
 
   /**
-    * Dumps all entries into a newly created external sorter, clears the hash map, and returns the
-    * external sorter.
-    */
+   * Dumps all entries into a newly created external sorter, clears the hash map, and returns the
+   * external sorter.
+   */
   def dumpToExternalSorter(
       groupingAttributes: Seq[Attribute],
       aggregateFunctions: Seq[AggregateFunction]): UnsafeKVExternalSorter = {
