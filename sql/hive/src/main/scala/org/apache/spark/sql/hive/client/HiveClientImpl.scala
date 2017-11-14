@@ -211,7 +211,8 @@ private[hive] class HiveClientImpl(
            case _ => new SessionState(hiveConf, userName)
         }
 
-        if (clientLoader.cachedHive != null) {
+        if (clientLoader.cachedHive != null
+          && sparkConf.getBoolean("spark.sql.hive.useCachedHiveMetaStoreClient", false)) {
           Hive.set(clientLoader.cachedHive.asInstanceOf[Hive])
         }
         SessionState.start(state)
