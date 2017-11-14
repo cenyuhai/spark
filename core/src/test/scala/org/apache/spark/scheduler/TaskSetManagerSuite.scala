@@ -692,7 +692,7 @@ class TaskSetManagerSuite extends SparkFunSuite with LocalSparkContext with Logg
 
     val singleTask = new ShuffleMapTask("", 0, 0, null, new Partition {
       override def index: Int = 0
-    }, Seq(TaskLocation("host1", "execA")), new Properties, null)
+    }, Seq(TaskLocation("host1", "execA")), null, new Properties, null)
     val taskSet = new TaskSet(Array(singleTask), 0, 0, 0, null)
     val manager = new TaskSetManager(sched, taskSet, MAX_TASK_FAILURES)
 
