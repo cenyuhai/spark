@@ -690,7 +690,7 @@ class TaskSetManagerSuite extends SparkFunSuite with LocalSparkContext with Logg
     }
     sched.setDAGScheduler(dagScheduler)
 
-    val singleTask = new ShuffleMapTask(0, 0, null, new Partition {
+    val singleTask = new ShuffleMapTask("", 0, 0, null, new Partition {
       override def index: Int = 0
     }, Seq(TaskLocation("host1", "execA")), new Properties, null)
     val taskSet = new TaskSet(Array(singleTask), 0, 0, 0, null)
