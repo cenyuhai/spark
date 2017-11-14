@@ -217,6 +217,7 @@ private[hive] class HiveClientImpl(
         } else {
           // Close current connection with Metastore Server for maybe different user now
           Hive.closeCurrent()
+          logInfo("Clear current Hive connection for new session")
         }
         SessionState.start(state)
         state.out = new PrintStream(outputBuffer, true, "UTF-8")
