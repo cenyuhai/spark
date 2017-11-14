@@ -214,6 +214,9 @@ private[hive] class HiveClientImpl(
         if (clientLoader.cachedHive != null
           && sparkConf.getBoolean("spark.sql.hive.useCachedHiveMetaStoreClient", false)) {
           Hive.set(clientLoader.cachedHive.asInstanceOf[Hive])
+        } else {
+          // Close current connection with Metastore Server for maybe different user now
+          Hive.closeCurrent()
         }
         SessionState.start(state)
         state.out = new PrintStream(outputBuffer, true, "UTF-8")
