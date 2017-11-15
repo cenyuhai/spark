@@ -288,12 +288,21 @@ private[hive] class HiveClientImpl(
   }
 
   private def client: Hive = {
-    if (clientLoader.cachedHive != null) {
-      clientLoader.cachedHive.asInstanceOf[Hive]
+    if (sparkConf.getBoolean("spark.sql.hive.useCachedHiveMetaStoreClient", false)) {
+      if (clientLoader.cachedHive != null) {
+        clientLoader.cachedHive.asInstanceOf[Hive]
+      } else {
+        val c = Hive.get(conf)
+        clientLoader.cachedHive = c
+        c
+      }
     } else {
-      val c = Hive.get(conf)
-      clientLoader.cachedHive = c
-      c
+      // not share between session, here we use Hive.get to switch to new if different user now
+      val newClient = Hive.get()
+      if (clientLoader.cachedHive != newClient) {
+        logInfo("switch to a new HiveMetaStoreClient")
+      }
+      newClient
     }
   }
 
