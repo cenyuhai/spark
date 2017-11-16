@@ -26,7 +26,6 @@ import scala.collection.JavaConverters._
 import scala.collection.mutable.ArrayBuffer
 import scala.util.control.NonFatal
 
-import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.hive.metastore.api.FieldSchema
 import org.apache.hadoop.hive.shims.Utils
 import org.apache.hadoop.security.UserGroupInformation
@@ -199,13 +198,6 @@ private[hive] class SparkExecuteStatementOperation(
               setOperationException(new HiveSQLException(e))
               logError("Error running hive query as user : " +
                 sparkServiceUGI.getShortUserName(), e)
-          } finally {
-            try {
-              FileSystem.closeAllForUGI(sparkServiceUGI)
-            } catch {
-              case e: Exception =>
-                logWarning(e.getMessage)
-            }
           }
         }
       }
