@@ -154,6 +154,14 @@ case class SetCommand(kv: Option[(String, Option[String])]) extends RunnableComm
       }
       (keyValueOutput, runFunc)
 
+    case Some((SQLConf.HiveVars.MAPJOIN_THRESHOLD, None)) =>
+      val runFunc = (sparkSession: SparkSession) => {
+        Seq(Row(
+          SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key,
+          sparkSession.sessionState.conf.autoBroadcastJoinThreshold.toString))
+      }
+      (keyValueOutput, runFunc)
+
     // Queries a single property.
     case Some((key, None)) =>
       val runFunc = (sparkSession: SparkSession) => {
@@ -206,6 +214,12 @@ case class ResetCommand(key: Option[String]) extends RunnableCommand with Loggin
     case Some(SQLConf.HiveVars.REDUCE_BYTES) =>
       val runFunc = (sparkSession: SparkSession) => {
         sparkSession.sessionState.conf.unsetConf(SQLConf.SHUFFLE_TARGET_POSTSHUFFLE_INPUT_SIZE.key)
+      }
+      runFunc
+
+    case Some(SQLConf.HiveVars.MAPJOIN_THRESHOLD) =>
+      val runFunc = (sparkSession: SparkSession) => {
+        sparkSession.sessionState.conf.unsetConf(SQLConf.AUTO_BROADCASTJOIN_THRESHOLD.key)
       }
       runFunc
 

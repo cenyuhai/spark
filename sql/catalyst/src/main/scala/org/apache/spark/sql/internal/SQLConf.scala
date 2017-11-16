@@ -109,7 +109,7 @@ object SQLConf {
       "run, and file-based data source tables where the statistics are computed directly on " +
       "the files of data.")
     .longConf
-    .createWithDefault(10L * 1024 * 1024)
+    .createWithDefault(25L * 1024 * 1024)
 
   val LIMIT_SCALE_UP_FACTOR = SQLConfigBuilder("spark.sql.limit.scaleUpFactor")
     .internal()
@@ -724,6 +724,7 @@ object SQLConf {
   object HiveVars {
     val REDUCE_BYTES = "hive.exec.reducers.bytes.per.reducer"
     val HIVE_DEFAULT_FILEFORMAT = "hive.default.fileformat"
+    val MAPJOIN_THRESHOLD = "hive.mapjoin.smalltable.filesize"
   }
 }
 
