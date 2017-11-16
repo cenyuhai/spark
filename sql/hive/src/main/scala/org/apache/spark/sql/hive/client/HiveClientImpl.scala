@@ -299,8 +299,10 @@ private[hive] class HiveClientImpl(
     } else {
       // not share between session, here we use Hive.get to switch to new if different user now
       // unset this for different classloader may cause class recognition issue
-      conf.unset("hive.metastore.filter.hook")
+      // conf.unset("hive.metastore.filter.hook")
       val newClient = Hive.get()
+      // initialize metastore client now in case of initialized inside different classloader
+      newClient.getMSC
       if (clientLoader.cachedHive != null) {
         if (clientLoader.cachedHive != newClient) {
           logInfo("switch to a new HiveMetaStoreClient")
