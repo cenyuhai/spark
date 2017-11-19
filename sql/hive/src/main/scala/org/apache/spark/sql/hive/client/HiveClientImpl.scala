@@ -211,8 +211,13 @@ private[hive] class HiveClientImpl(
            case _ => new SessionState(hiveConf, userName)
         }
 
-        if (clientLoader.cachedHive != null) {
+        if (clientLoader.cachedHive != null
+          && sparkConf.getBoolean("spark.sql.hive.useCachedHiveMetaStoreClient", true)) {
           Hive.set(clientLoader.cachedHive.asInstanceOf[Hive])
+        } else {
+          // Close current connection with Metastore Server for maybe different user now
+          Hive.closeCurrent()
+          logInfo("Clear current Hive connection for new session")
         }
         SessionState.start(state)
         state.out = new PrintStream(outputBuffer, true, "UTF-8")
@@ -283,12 +288,27 @@ private[hive] class HiveClientImpl(
   }
 
   private def client: Hive = {
-    if (clientLoader.cachedHive != null) {
-      clientLoader.cachedHive.asInstanceOf[Hive]
+    if (sparkConf.getBoolean("spark.sql.hive.useCachedHiveMetaStoreClient", true)) {
+      if (clientLoader.cachedHive != null) {
+        clientLoader.cachedHive.asInstanceOf[Hive]
+      } else {
+        val c = Hive.get(conf)
+        clientLoader.cachedHive = c
+        c
+      }
     } else {
-      val c = Hive.get(conf)
-      clientLoader.cachedHive = c
-      c
+      // not share between session, here we use Hive.get to switch to new if different user now
+      val newClient = Hive.get()
+      // unset this for different classloader may cause class recognition issue
+      newClient.getConf.unset("hive.metastore.filter.hook")
+      if (clientLoader.cachedHive != null) {
+        if (clientLoader.cachedHive != newClient) {
+          logInfo("switch to a new HiveMetaStoreClient")
+        }
+      } else {
+        clientLoader.cachedHive = newClient
+      }
+      newClient
     }
   }
 
