@@ -17,6 +17,7 @@
 
 package org.apache.spark.sql.hive
 
+import org.apache.spark.scheduler.SQLEvent
 import org.apache.spark.sql._
 import org.apache.spark.sql.catalyst.analysis.Analyzer
 import org.apache.spark.sql.catalyst.optimizer.Optimizer
@@ -54,6 +55,9 @@ private[hive] class HiveSessionState(sparkSession: SparkSession)
   }
 
   override protected[sql] def auth(command: String): Unit = {
+    if (sparkSession.sparkContext.conf.getBoolean("spark.hive.sql.collect", true)) {
+      sparkSession.sparkContext.listenerBus.post(SQLEvent(command))
+    }
     if (!sparkSession.sparkContext.conf.getBoolean("spark.hive.auth.enable", true)) {
       return
     }
@@ -81,7 +85,9 @@ private[hive] class HiveSessionState(sparkSession: SparkSession)
     override def batches: Seq[Batch] = super.batches :+
       Batch("Determine stats of partitionedTable", Once,
         DeterminePartitionedTableStats(sparkSession)) :+
-      Batch("Merge small files when insert into hive tables", Once, MergeSmallFiles(sparkSession))
+      Batch("Merge small files when insert into hive tables", Once,
+        MergeSmallFiles(sparkSession)) :+
+      Batch("Collect read and write tables", Once, DependencyCollect(sparkSession))
   }
 
   /**
