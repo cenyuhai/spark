@@ -140,6 +140,11 @@ object SQLConf {
     .intConf
     .createWithDefault(200)
 
+  val USE_HIVE_GROUPINGID = SQLConfigBuilder("spark.sql.hive.groupingid.enabled")
+    .doc("Whether to merge files when inserting hive tables.")
+    .booleanConf
+    .createWithDefault(true)
+
   val MERGE_HIVEFILES = SQLConfigBuilder("spark.sql.hive.mergeFiles")
     .doc("Whether to merge files when inserting hive tables.")
     .booleanConf
@@ -746,6 +751,8 @@ class SQLConf extends Serializable with Logging {
   @transient private val reader = new ConfigReader(settings)
 
   /** ************************ Spark SQL Params/Hints ******************* */
+
+  def useHiveGroupingId: Boolean = getConf(USE_HIVE_GROUPINGID)
 
   def optimizerMaxIterations: Int = getConf(OPTIMIZER_MAX_ITERATIONS)
 

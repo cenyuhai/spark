@@ -558,12 +558,17 @@ object Expand {
    */
   private def buildNonSelectAttrSet(
       bitmask: Int,
-      attrs: Seq[Attribute]): AttributeSet = {
+      attrs: Seq[Attribute],
+      useHiveGroupingId: Boolean): AttributeSet = {
     val nonSelect = new ArrayBuffer[Attribute]()
 
     var bit = attrs.length - 1
     while (bit >= 0) {
-      if (((bitmask >> bit) & 1) == 1) nonSelect += attrs(attrs.length - bit - 1)
+      if (useHiveGroupingId) {
+        if (((bitmask >> bit) & 1) == 0) nonSelect += attrs(bit)
+      } else {
+        if (((bitmask >> bit) & 1) == 1) nonSelect += attrs(attrs.length - bit - 1)
+      }
       bit -= 1
     }
 
@@ -586,12 +591,33 @@ object Expand {
     groupByAttrs: Seq[Attribute],
     gid: Attribute,
     child: LogicalPlan): Expand = {
+    apply(bitmasks, groupByAliases, groupByAttrs, gid, child, true)
+  }
+
+  /**
+   * Apply the all of the GroupExpressions to every input row, hence we will get
+   * multiple output rows for an input row.
+   *
+   * @param bitmasks The bitmask set represents the grouping sets
+   * @param groupByAliases The aliased original group by expressions
+   * @param groupByAttrs The attributes of aliased group by expressions
+   * @param gid Attribute of the grouping id
+   * @param child Child operator
+   * @param useHiveGroupingId support hive grouping__id behavior
+   */
+  def apply(
+    bitmasks: Seq[Int],
+    groupByAliases: Seq[Alias],
+    groupByAttrs: Seq[Attribute],
+    gid: Attribute,
+    child: LogicalPlan,
+    useHiveGroupingId: Boolean): Expand = {
     // Create an array of Projections for the child projection, and replace the projections'
     // expressions which equal GroupBy expressions with Literal(null), if those expressions
     // are not set for this grouping set (according to the bit mask).
     val projections = bitmasks.map { bitmask =>
       // get the non selected grouping attributes according to the bit mask
-      val nonSelectedGroupAttrSet = buildNonSelectAttrSet(bitmask, groupByAttrs)
+      val nonSelectedGroupAttrSet = buildNonSelectAttrSet(bitmask, groupByAttrs, useHiveGroupingId)
 
       child.output ++ groupByAttrs.map { attr =>
         if (nonSelectedGroupAttrSet.contains(attr)) {

@@ -305,7 +305,8 @@ class Analyzer(
           a.toAttribute.withNullability(a.nullable || canBeNull)
         }
 
-        val expand = Expand(x.bitmasks, groupByAliases, expandedAttributes, gid, x.child)
+        val expand = Expand(x.bitmasks, groupByAliases, expandedAttributes, gid, x.child,
+          conf.useHiveGroupingId)
         val groupingAttrs = expand.output.drop(x.child.output.length)
 
         val aggregations: Seq[NamedExpression] = x.aggregations.map { case expr =>
