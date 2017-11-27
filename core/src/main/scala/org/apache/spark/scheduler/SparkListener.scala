@@ -20,6 +20,7 @@ package org.apache.spark.scheduler
 import java.util.Properties
 import javax.annotation.Nullable
 
+import scala.collection.mutable.HashSet
 import scala.collection.Map
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo
@@ -37,6 +38,17 @@ import org.apache.spark.util.StatCounter
 trait SparkListenerEvent {
   /* Whether output this event to the event log */
   protected[spark] def logEvent: Boolean = true
+}
+
+@DeveloperApi
+case class SQLEvent(sql: String) extends SparkListenerEvent {
+  override protected[spark] def logEvent: Boolean = false
+}
+
+@DeveloperApi
+case class DependencyEvent(readTables: HashSet[String], writeTables: HashSet[String])
+    extends SparkListenerEvent {
+  override protected[spark] def logEvent: Boolean = false
 }
 
 @DeveloperApi

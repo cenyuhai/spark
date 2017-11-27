@@ -19,13 +19,16 @@ package org.apache.spark.sql.hive
 
 import java.io.IOException
 
+import scala.collection.mutable
 import scala.util.control.Breaks.{break, breakable}
 
 import org.apache.hadoop.fs.Path
 import org.apache.hadoop.hive.common.StatsSetupConst
 
+import org.apache.spark.scheduler.DependencyEvent
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.expressions.{Alias, AttributeSet, PredicateHelper, Rand}
+import org.apache.spark.sql.catalyst.planning.PhysicalOperation
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.execution.command.DDLUtils
@@ -126,5 +129,26 @@ case class MergeSmallFiles(sparkSession: SparkSession) extends Rule[LogicalPlan]
         CreateTable(tableDesc, mode, Some(RepartitionByExpression(
           Seq(Alias(new Rand(), "SparkMergeTask")()), query, None)))
     }
+  }
+}
+
+case class DependencyCollect(sparkSession: SparkSession) extends Rule[LogicalPlan] {
+  def apply(plan: LogicalPlan): LogicalPlan = {
+    if (sparkSession.sparkContext.conf.getBoolean("spark.collectDependencies", true)) {
+      val readTables = mutable.HashSet[String]()
+      val writeTables = mutable.HashSet[String]()
+      plan transformDown {
+        case i @ InsertIntoTable(table: MetastoreRelation, _, _, _, _) =>
+          writeTables += s"${table.databaseName}.${table.tableName}"
+          i
+        case p @ PhysicalOperation(_, _, table: MetastoreRelation) =>
+          readTables += s"${table.databaseName}.${table.tableName}"
+          p
+      }
+      if (readTables.size > 0 || writeTables.size > 0) {
+        sparkSession.sparkContext.listenerBus.post(DependencyEvent(readTables, writeTables))
+      }
+    }
+    plan
   }
 }
