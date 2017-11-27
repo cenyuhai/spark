@@ -487,7 +487,7 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
   /**
    * Add an [[Aggregate]] to a logical plan.
    */
-  private def withAggregation(
+  protected def withAggregation(
       ctx: AggregationContext,
       selectExpressions: Seq[NamedExpression],
       query: LogicalPlan): LogicalPlan = withOrigin(ctx) {
@@ -775,7 +775,7 @@ class AstBuilder extends SqlBaseBaseVisitor[AnyRef] with Logging {
   /**
    * Create sequence of expressions from the given sequence of contexts.
    */
-  private def expressionList(trees: java.util.List[ExpressionContext]): Seq[Expression] = {
+  protected def expressionList(trees: java.util.List[ExpressionContext]): Seq[Expression] = {
     trees.asScala.map(expression)
   }
 

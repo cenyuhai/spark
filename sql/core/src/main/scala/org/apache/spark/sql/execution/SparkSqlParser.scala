@@ -25,9 +25,10 @@ import org.antlr.v4.runtime.tree.TerminalNode
 import org.apache.spark.sql.{AnalysisException, SaveMode}
 import org.apache.spark.sql.catalyst.{FunctionIdentifier, TableIdentifier}
 import org.apache.spark.sql.catalyst.catalog._
+import org.apache.spark.sql.catalyst.expressions.{Cube, Expression, NamedExpression, Rollup}
 import org.apache.spark.sql.catalyst.parser._
 import org.apache.spark.sql.catalyst.parser.SqlBaseParser._
-import org.apache.spark.sql.catalyst.plans.logical.{LogicalPlan, OneRowRelation, ScriptInputOutputSchema}
+import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.execution.command._
 import org.apache.spark.sql.execution.datasources.{CreateTable, _}
 import org.apache.spark.sql.internal.{HiveSerDe, SQLConf, VariableSubstitution}
@@ -1403,4 +1404,53 @@ class SparkSqlAstBuilder(conf: SQLConf) extends AstBuilder {
       reader, writer,
       schemaLess)
   }
+
+  /**
+   * Add an [[Aggregate]] to a logical plan.
+   */
+  override def withAggregation(
+      ctx: AggregationContext,
+      selectExpressions: Seq[NamedExpression],
+      query: LogicalPlan): LogicalPlan = withOrigin(ctx) {
+    import ctx._
+    val groupByExpressions = expressionList(groupingExpressions)
+
+    if (GROUPING != null) {
+      // GROUP BY .... GROUPING SETS (...)
+      val expressionMap = groupByExpressions.zipWithIndex.toMap
+      val numExpressions = expressionMap.size
+      val useHiveGroupingId = conf.useHiveGroupingId
+
+      val mask = if (useHiveGroupingId) 0 else (1 << numExpressions) - 1
+      val masks = ctx.groupingSet.asScala.map {
+        _.expression.asScala.foldLeft(mask) {
+          case (bitmap, eCtx) =>
+            // Find the index of the expression.
+            val e = typedVisit[Expression](eCtx)
+            val index = expressionMap.find(_._1.semanticEquals(e)).map(_._2).getOrElse(
+              throw new ParseException(
+                s"$e doesn't show up in the GROUP BY list", ctx))
+            // 0 means that the column at the given index is a grouping column, 1 means it is not,
+            // so we unset the bit in bitmap.
+            if (useHiveGroupingId) {
+              bitmap | 1 << index
+            } else {
+              bitmap & ~(1 << (numExpressions - 1 - index))
+            }
+        }
+      }
+      GroupingSets(masks, groupByExpressions, query, selectExpressions)
+    } else {
+      // GROUP BY .... (WITH CUBE | WITH ROLLUP)?
+      val mappedGroupByExpressions = if (CUBE != null) {
+        Seq(Cube(groupByExpressions))
+      } else if (ROLLUP != null) {
+        Seq(Rollup(groupByExpressions))
+      } else {
+        groupByExpressions
+      }
+      Aggregate(mappedGroupByExpressions, selectExpressions, query)
+    }
+  }
+
 }
